@@ -20,7 +20,8 @@ import {
     ClipboardCheck,
     ChevronRight,
     ExternalLink,
-    Info
+    Info,
+    Download
 } from 'lucide-react';
 
 // --- Constants & Defaults ---
@@ -112,16 +113,25 @@ const WizardOverlay = ({ isOpen, onClose, onImport, employeeList }) => {
     const currentStep = steps[step - 1];
 
     let promptText = "";
-    let instructions = [];
+    let instructionsContent = null;
 
     if (currentStep.type === 'expenses') {
-        instructions = [
-            "Log in to QuickBooks Online.",
-            "Go to Reports > Profit and Loss.",
-            "Select the dates you want the report for.",
-            "Click Export then Export to CSV.",
-            "Copy the prompt below and enter it into Google Gemini along with your CSV file."
-        ];
+        instructionsContent = (
+            <ol className="list-decimal pl-5 space-y-3 text-slate-700 text-sm font-medium">
+                <li>
+                    Log in to <a href="https://qbo.intuit.com/app/reports/profitandloss" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold flex-inline items-center gap-1">QuickBooks Online <ExternalLink className="w-3 h-3 inline" /></a>.
+                </li>
+                <li>
+                    Go to <strong>Reports &gt; Profit and Loss</strong>. Select your desired dates and run the report.
+                </li>
+                <li>
+                    Click the <strong>Export</strong> icon, then select <strong>Export to CSV</strong>.
+                </li>
+                <li>
+                    Copy the prompt below and paste it into Gemini along with the content of your CSV file.
+                </li>
+            </ol>
+        );
 
         // Construct a sample object string to show the AI exactly what we want
         const targetExample = {
@@ -154,13 +164,22 @@ Here is my CSV Data:
 [PASTE CSV CONTENT HERE]`;
 
     } else if (currentStep.type === 'labor') {
-        instructions = [
-            "Go to your Time Tracking / Payroll software (e.g., QuickBooks Time).",
-            "Run a detailed time report.",
-            "Select the same date range as your P&L.",
-            "Export the data to CSV.",
-            "Copy the prompt below and enter it into Google Gemini along with your CSV file."
-        ];
+        instructionsContent = (
+            <ol className="list-decimal pl-5 space-y-3 text-slate-700 text-sm font-medium">
+                <li>
+                    Log in to <a href="https://secure.getjobber.com/login" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold flex-inline items-center gap-1">Jobber <ExternalLink className="w-3 h-3 inline" /></a> and export your <strong>Timesheets</strong> report to CSV.
+                </li>
+                <li>
+                    Open the <a href="https://docs.google.com/spreadsheets/d/18rrrFgScsgdrw2QEYTi3t28bGDnEL8vMbbTOwi0ZgvE/edit?usp=sharing" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold flex-inline items-center gap-1">Brimmer Pay Rates Sheet <ExternalLink className="w-3 h-3 inline" /></a>.
+                </li>
+                <li>
+                    Go to <strong>File &gt; Download &gt; Comma Separated Values (.csv)</strong> to get the rates file.
+                </li>
+                <li>
+                    Copy the prompt below. Paste it into Gemini along with <strong>BOTH</strong> CSV files (Timesheets + Pay Rates).
+                </li>
+            </ol>
+        );
 
         promptText = `Role: You are an expert Payroll Data Analyst. You are tasked with processing employee timesheets and calculating precise labor costs by cross-referencing timesheet data with a complex pay rate schedule.
 
@@ -292,11 +311,7 @@ Here is my Data (Timesheets and Pay Rates):
                                     </div>
                                     <div className="flex-1">
                                         <h4 className="font-bold text-blue-900 text-lg mb-3">Follow these steps:</h4>
-                                        <ol className="list-decimal pl-5 space-y-2 text-blue-800 text-sm font-medium">
-                                            {instructions.map((inst, i) => (
-                                                <li key={i}>{inst}</li>
-                                            ))}
-                                        </ol>
+                                        {instructionsContent}
                                     </div>
                                 </div>
                             </div>
@@ -794,6 +809,72 @@ export default function App() {
         };
     }, [expenses, employees]);
 
+    const handleExportCSV = () => {
+        // Helper to escape commas
+        const safe = (val) => `"${String(val).replace(/"/g, '""')}"`;
+
+        const {
+            totalFixedOverhead,
+            totalIndirectWages,
+            totalOverheadPool,
+            totalDirectHours,
+            overheadCostPerDirectHour,
+            employeeMetrics
+        } = calculations;
+
+        const rows = [];
+
+        // Section 1: Summary
+        rows.push(["COMPANY OVERVIEW"]);
+        rows.push(["Report Date Range", dateRange || "N/A"]);
+        rows.push(["Total Fixed Overhead (Adjusted)", totalFixedOverhead.toFixed(2)]);
+        rows.push(["Total Indirect Wages", totalIndirectWages.toFixed(2)]);
+        rows.push(["Total Overhead Pool", totalOverheadPool.toFixed(2)]);
+        rows.push(["Total Direct Capacity (Hours)", totalDirectHours.toFixed(2)]);
+        rows.push(["ACTUAL OVERHEAD COST PER DIRECT HOUR", overheadCostPerDirectHour.toFixed(2)]);
+        rows.push([]); // Empty row
+
+        // Section 2: Employees
+        rows.push(["EMPLOYEE PERFORMANCE"]);
+        rows.push([
+            "Name",
+            "Direct Hours",
+            "Indirect Hours",
+            "Total Direct Wages",
+            "Total Indirect Wages",
+            "Utilization %",
+            "Avg Direct Hourly Wage",
+            "Overhead Allocation",
+            "TRUE HOURLY COST"
+        ]);
+
+        employeeMetrics.forEach(emp => {
+            rows.push([
+                emp.name,
+                emp.directHours,
+                emp.indirectHours,
+                emp.directWages.toFixed(2),
+                emp.indirectWages.toFixed(2),
+                (emp.utilization * 100).toFixed(1) + "%",
+                emp.avgDirectHourlyWage.toFixed(2),
+                overheadCostPerDirectHour.toFixed(2),
+                emp.trueHourlyCost.toFixed(2)
+            ]);
+        });
+
+        // Convert to CSV string
+        const csvContent = "data:text/csv;charset=utf-8,"
+            + rows.map(e => e.map(safe).join(",")).join("\n");
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", "HVAC_Labor_Report.csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     // --- Memoize the expense list to handle dynamic keys ---
     const allExpenseKeys = useMemo(() => {
         // Start with default keys to preserve order
@@ -1182,12 +1263,20 @@ export default function App() {
                         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
                             <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                                 <h3 className="text-lg font-bold text-slate-800">Employee True Cost Analysis</h3>
-                                <button
-                                    onClick={() => window.print()}
-                                    className="text-sm text-slate-500 hover:text-slate-800 flex items-center gap-2 print:hidden"
-                                >
-                                    <Save className="w-4 h-4" /> Print Report
-                                </button>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handleExportCSV}
+                                        className="text-sm bg-blue-600 text-white hover:bg-blue-700 px-4 py-2 rounded font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                                    >
+                                        <Download className="w-4 h-4" /> Export CSV
+                                    </button>
+                                    <button
+                                        onClick={() => window.print()}
+                                        className="text-sm text-slate-500 hover:text-slate-800 px-4 py-2 rounded border border-slate-200 hover:bg-slate-50 flex items-center gap-2 print:hidden"
+                                    >
+                                        <Save className="w-4 h-4" /> Print
+                                    </button>
+                                </div>
                             </div>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-sm text-left">
