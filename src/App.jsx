@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
     Calculator,
     Users,
@@ -21,7 +21,8 @@ import {
     ChevronRight,
     ExternalLink,
     Info,
-    Download
+    Download,
+    Upload
 } from 'lucide-react';
 
 // --- Constants & Defaults ---
@@ -133,7 +134,6 @@ const WizardOverlay = ({ isOpen, onClose, onImport, employeeList }) => {
             </ol>
         );
 
-        // Construct a sample object string to show the AI exactly what we want
         const targetExample = {
             dateRange: "Example Date Range",
             expenses: {
@@ -617,6 +617,7 @@ export default function App() {
     const [activeTab, setActiveTab] = useState('guide'); // 'guide', 'input', 'report'
     const [importModal, setImportModal] = useState({ isOpen: false, type: 'expenses' });
     const [isWizardOpen, setIsWizardOpen] = useState(false);
+    const fileInputRef = useRef(null); // For importing backup
 
     // --- Handlers ---
 
@@ -627,61 +628,33 @@ export default function App() {
 
     const handleImport = (importedData, type) => {
         if (type === 'expenses') {
-            // Handle Date Range
-            if (importedData.dateRange) {
-                setDateRange(importedData.dateRange);
-            }
-
-            // Handle Expenses
+            if (importedData.dateRange) setDateRange(importedData.dateRange);
             let expenseData = importedData.expenses || importedData;
-
-            // FAIL-SAFE: If the AI returns an array of objects (like the user example) 
-            // instead of a clean object, detect it and convert it.
             if (Array.isArray(expenseData)) {
                 const expenseObject = {};
                 expenseData.forEach(item => {
-                    // Check for keys like 'category' (from user example) or 'name', and 'amount' or 'value'
                     const key = item.category || item.name || item.account;
                     const val = item.amount || item.value || 0;
                     if (key) expenseObject[key] = val;
                 });
                 expenseData = expenseObject;
             }
-
             setExpenses(prev => {
-                // This logic now supports merging NEW keys that aren't in the default list
                 const newExpenses = { ...prev, ...expenseData };
-
-                // Ensure all values are numbers
-                Object.keys(newExpenses).forEach(key => {
-                    newExpenses[key] = parseFloat(newExpenses[key]) || 0;
-                });
-
+                Object.keys(newExpenses).forEach(key => { newExpenses[key] = parseFloat(newExpenses[key]) || 0; });
                 return newExpenses;
             });
-
-            // Do not show alert in wizard mode to keep flow smooth
             if (!isWizardOpen) alert("Expenses and dates imported successfully!");
-
         } else if (type === 'labor') {
-            // Handle Labor Import
             const newEmployeeData = importedData;
-            if (!Array.isArray(newEmployeeData)) {
-                alert("Error: Imported labor data must be an array.");
-                return;
-            }
-
+            if (!Array.isArray(newEmployeeData)) { alert("Error: Imported labor data must be an array."); return; }
             const updatedEmployees = [...employees];
             let matchCount = 0;
-
             newEmployeeData.forEach(importedEmp => {
-                // Try to find existing employee by name (fuzzy match handled by AI, strict match here)
                 const existingIndex = updatedEmployees.findIndex(e =>
                     e.name.toLowerCase().trim() === importedEmp.name.toLowerCase().trim()
                 );
-
                 if (existingIndex >= 0) {
-                    // Update existing
                     updatedEmployees[existingIndex] = {
                         ...updatedEmployees[existingIndex],
                         directHours: importedEmp.directHours || 0,
@@ -691,7 +664,6 @@ export default function App() {
                     };
                     matchCount++;
                 } else {
-                    // Add new employee
                     const newId = Math.max(...updatedEmployees.map(e => e.id), 0) + 1;
                     updatedEmployees.push({
                         id: newId,
@@ -703,7 +675,6 @@ export default function App() {
                     });
                 }
             });
-
             setEmployees(updatedEmployees);
             if (!isWizardOpen) alert(`Labor data imported! Updated ${matchCount} existing employees and added ${newEmployeeData.length - matchCount} new ones.`);
         }
@@ -718,14 +689,7 @@ export default function App() {
 
     const addEmployee = () => {
         const newId = Math.max(...employees.map(e => e.id), 0) + 1;
-        setEmployees([...employees, {
-            id: newId,
-            name: "New Employee",
-            directHours: 0,
-            indirectHours: 0,
-            directWages: 0,
-            indirectWages: 0
-        }]);
+        setEmployees([...employees, { id: newId, name: "New Employee", directHours: 0, indirectHours: 0, directWages: 0, indirectWages: 0 }]);
     };
 
     const removeEmployee = (id) => {
@@ -750,22 +714,89 @@ export default function App() {
 
     const handleWizardClose = () => {
         setIsWizardOpen(false);
-        setActiveTab('report'); // Default to report after wizard
+        setActiveTab('report');
+    };
+
+    // --- Import Backup Logic ---
+    const handleImportBackup = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const text = e.target.result;
+            const lines = text.split(/\r?\n/);
+
+            let importMode = null;
+            const newExpenses = { ...INITIAL_EXPENSES };
+            const newEmployees = [];
+            let newDateRange = "";
+
+            // Simple parser for the custom backup format
+            lines.forEach(line => {
+                if (!line) return;
+
+                // Helper to handle CSV quotes
+                const parseCSVLine = (str) => {
+                    const result = [];
+                    let current = '';
+                    let inQuote = false;
+                    for (let i = 0; i < str.length; i++) {
+                        if (str[i] === '"') { inQuote = !inQuote; }
+                        else if (str[i] === ',' && !inQuote) { result.push(current); current = ''; }
+                        else { current += str[i]; }
+                    }
+                    result.push(current);
+                    return result.map(s => s.trim());
+                };
+
+                const cols = parseCSVLine(line);
+                const tag = cols[0];
+
+                if (tag === "DATERANGE") {
+                    newDateRange = cols[1] || "";
+                } else if (tag === "EXPENSE") {
+                    const category = cols[1];
+                    const amount = parseFloat(cols[2]) || 0;
+                    if (category) newExpenses[category] = amount;
+                } else if (tag === "EMPLOYEE") {
+                    newEmployees.push({
+                        id: parseInt(cols[1]) || 0,
+                        name: cols[2] || "Unknown",
+                        directHours: parseFloat(cols[3]) || 0,
+                        indirectHours: parseFloat(cols[4]) || 0,
+                        directWages: parseFloat(cols[5]) || 0,
+                        indirectWages: parseFloat(cols[6]) || 0
+                    });
+                }
+            });
+
+            // Apply updates if data found
+            if (newDateRange || Object.keys(newExpenses).length > 0 || newEmployees.length > 0) {
+                if (newDateRange) setDateRange(newDateRange);
+                setExpenses(newExpenses);
+                if (newEmployees.length > 0) setEmployees(newEmployees);
+                alert("Backup successfully restored!");
+                setActiveTab('input'); // Go to data entry to verify
+            } else {
+                alert("Could not find valid backup data in this CSV.");
+            }
+        };
+        reader.readAsText(file);
+        // Reset input
+        event.target.value = null;
+    };
+
+    const triggerImportBackup = () => {
+        fileInputRef.current?.click();
     };
 
     // --- Calculations ---
 
     const calculations = useMemo(() => {
-        // 1. Sum all values (Raw Total)
         const rawTotalExpenses = Object.values(expenses).reduce((sum, val) => sum + val, 0);
-
-        // 2. Get Payroll Expense Amount
         const payrollExpenseAmount = expenses[PAYROLL_CATEGORY_KEY] || 0;
-
-        // 3. Calculate Adjusted Fixed Overhead (Raw - Payroll)
         const totalFixedOverhead = rawTotalExpenses - payrollExpenseAmount;
-
-        // 4. Calculate Labor Totals
         let totalDirectHours = 0;
         let totalIndirectWages = 0;
 
@@ -774,9 +805,7 @@ export default function App() {
             totalIndirectWages += emp.indirectWages;
         });
 
-        // 5. Total Overhead Pool (Fixed Adjusted + Indirect Wages)
         const totalOverheadPool = totalFixedOverhead + totalIndirectWages;
-
         const overheadCostPerDirectHour = totalDirectHours > 0
             ? totalOverheadPool / totalDirectHours
             : 0;
@@ -809,9 +838,8 @@ export default function App() {
         };
     }, [expenses, employees]);
 
-    const handleExportCSV = () => {
-        // Helper to escape commas
-        const safe = (val) => `"${String(val).replace(/"/g, '""')}"`;
+    const handleExportCSV = (includeRawData = false) => {
+        const safe = (val) => `"${String(val || '').replace(/"/g, '""')}"`;
 
         const {
             totalFixedOverhead,
@@ -826,13 +854,13 @@ export default function App() {
 
         // Section 1: Summary
         rows.push(["COMPANY OVERVIEW"]);
-        rows.push(["Report Date Range", dateRange || "N/A"]);
+        rows.push(["Report Date Range", safe(dateRange || "N/A")]);
         rows.push(["Total Fixed Overhead (Adjusted)", totalFixedOverhead.toFixed(2)]);
         rows.push(["Total Indirect Wages", totalIndirectWages.toFixed(2)]);
         rows.push(["Total Overhead Pool", totalOverheadPool.toFixed(2)]);
         rows.push(["Total Direct Capacity (Hours)", totalDirectHours.toFixed(2)]);
         rows.push(["ACTUAL OVERHEAD COST PER DIRECT HOUR", overheadCostPerDirectHour.toFixed(2)]);
-        rows.push([]); // Empty row
+        rows.push([]);
 
         // Section 2: Employees
         rows.push(["EMPLOYEE PERFORMANCE"]);
@@ -850,7 +878,7 @@ export default function App() {
 
         employeeMetrics.forEach(emp => {
             rows.push([
-                emp.name,
+                safe(emp.name),
                 emp.directHours,
                 emp.indirectHours,
                 emp.directWages.toFixed(2),
@@ -862,14 +890,43 @@ export default function App() {
             ]);
         });
 
+        // Section 3: Raw Data Backup (Only if requested)
+        if (includeRawData) {
+            rows.push([]);
+            rows.push([]);
+            rows.push(["--- RAW DATA BACKUP (DO NOT EDIT BELOW THIS LINE) ---"]);
+            rows.push(["TYPE", "KEY_ID", "NAME_CAT", "VAL1", "VAL2", "VAL3", "VAL4"]); // Header for readability
+
+            // Metadata
+            rows.push(["DATERANGE", safe(dateRange)]);
+
+            // Expenses
+            allExpenseKeys.forEach(key => {
+                rows.push(["EXPENSE", safe(key), expenses[key]]);
+            });
+
+            // Employees
+            employees.forEach(emp => {
+                rows.push([
+                    "EMPLOYEE",
+                    emp.id,
+                    safe(emp.name),
+                    emp.directHours,
+                    emp.indirectHours,
+                    emp.directWages,
+                    emp.indirectWages
+                ]);
+            });
+        }
+
         // Convert to CSV string
         const csvContent = "data:text/csv;charset=utf-8,"
-            + rows.map(e => e.map(safe).join(",")).join("\n");
+            + rows.map(e => e.join(",")).join("\n");
 
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "HVAC_Labor_Report.csv");
+        link.setAttribute("download", includeRawData ? "HVAC_Full_Backup.csv" : "HVAC_Labor_Report.csv");
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -877,9 +934,7 @@ export default function App() {
 
     // --- Memoize the expense list to handle dynamic keys ---
     const allExpenseKeys = useMemo(() => {
-        // Start with default keys to preserve order
         const keys = [...EXPENSE_CATEGORIES];
-        // Add any new keys found in the state that aren't in the default list
         Object.keys(expenses).forEach(key => {
             if (!keys.includes(key)) {
                 keys.push(key);
@@ -907,6 +962,15 @@ export default function App() {
                 employeeList={employees}
             />
 
+            {/* Hidden File Input for Backup Import */}
+            <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept=".csv"
+                onChange={handleImportBackup}
+            />
+
             {/* Header */}
             <header className="bg-slate-900 text-white p-6 shadow-md sticky top-0 z-40">
                 <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center">
@@ -930,6 +994,14 @@ export default function App() {
                         >
                             Start Here
                         </button>
+                        <button
+                            onClick={triggerImportBackup}
+                            className="px-4 py-2 text-sm rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors flex items-center gap-1"
+                            title="Load saved data from 'Full Backup' CSV"
+                        >
+                            <Upload className="w-3 h-3" /> Import Backup
+                        </button>
+                        <div className="w-px h-6 bg-slate-700 mx-1 hidden md:block"></div>
                         <button
                             onClick={() => setActiveTab('input')}
                             className={`px-4 py-2 text-sm rounded transition-colors ${activeTab === 'input' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
@@ -1023,8 +1095,8 @@ export default function App() {
                                                             min="0"
                                                             step="0.01"
                                                             className={`w-full pl-7 pr-3 py-2 border rounded focus:ring-2 focus:outline-none transition-all text-right font-mono text-sm ${isPayroll
-                                                                ? "bg-amber-50 border-amber-200 text-amber-800 focus:ring-amber-500 placeholder-amber-300/50"
-                                                                : "bg-slate-50 border-slate-300 text-slate-800 focus:ring-blue-500"
+                                                                    ? "bg-amber-50 border-amber-200 text-amber-800 focus:ring-amber-500 placeholder-amber-300/50"
+                                                                    : "bg-slate-50 border-slate-300 text-slate-800 focus:ring-blue-500"
                                                                 }`}
                                                             value={expenses[category] || ''}
                                                             onChange={(e) => handleExpenseChange(category, e.target.value)}
@@ -1265,16 +1337,24 @@ export default function App() {
                                 <h3 className="text-lg font-bold text-slate-800">Employee True Cost Analysis</h3>
                                 <div className="flex gap-2">
                                     <button
-                                        onClick={handleExportCSV}
-                                        className="text-sm bg-blue-600 text-white hover:bg-blue-700 px-4 py-2 rounded font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                                        onClick={() => handleExportCSV(true)}
+                                        className="text-sm bg-slate-800 text-white hover:bg-slate-900 px-4 py-2 rounded font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95 border border-slate-700"
+                                        title="Save all data including input fields for later use"
                                     >
-                                        <Download className="w-4 h-4" /> Export CSV
+                                        <Save className="w-4 h-4" /> Export Full Backup
+                                    </button>
+                                    <button
+                                        onClick={() => handleExportCSV(false)}
+                                        className="text-sm bg-blue-600 text-white hover:bg-blue-700 px-4 py-2 rounded font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                                        title="Export report only"
+                                    >
+                                        <Download className="w-4 h-4" /> Report CSV
                                     </button>
                                     <button
                                         onClick={() => window.print()}
                                         className="text-sm text-slate-500 hover:text-slate-800 px-4 py-2 rounded border border-slate-200 hover:bg-slate-50 flex items-center gap-2 print:hidden"
                                     >
-                                        <Save className="w-4 h-4" /> Print
+                                        <FileText className="w-4 h-4" /> Print
                                     </button>
                                 </div>
                             </div>
@@ -1295,8 +1375,8 @@ export default function App() {
                                                 <td className="px-6 py-4 font-medium text-slate-800">{emp.name}</td>
                                                 <td className="px-6 py-4 text-center">
                                                     <span className={`px-2 py-1 rounded text-xs font-bold ${emp.utilization > 0.85 ? 'bg-green-100 text-green-700' :
-                                                        emp.utilization > 0.70 ? 'bg-yellow-100 text-yellow-700' :
-                                                            'bg-red-100 text-red-700'
+                                                            emp.utilization > 0.70 ? 'bg-yellow-100 text-yellow-700' :
+                                                                'bg-red-100 text-red-700'
                                                         }`}>
                                                         {formatPercent(emp.utilization)}
                                                     </span>
