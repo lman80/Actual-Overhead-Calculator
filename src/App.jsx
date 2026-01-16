@@ -167,16 +167,16 @@ Here is my CSV Data:
         instructionsContent = (
             <ol className="list-decimal pl-5 space-y-3 text-slate-700 text-sm font-medium">
                 <li>
-                    Log in to <a href="https://secure.getjobber.com/login" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold flex-inline items-center gap-1">Jobber <ExternalLink className="w-3 h-3 inline" /></a> and export your <strong>Timesheets</strong> report to CSV.
+                    Log in to <a href="https://secure.getjobber.com/login" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold flex-inline items-center gap-1">Jobber <ExternalLink className="w-3 h-3 inline" /></a>, open the <strong>Timesheets</strong> report for the same date range as the QuickBooks export, and click <strong>"Receive Excel Copy"</strong>.
                 </li>
                 <li>
-                    Open the <a href="https://docs.google.com/spreadsheets/d/18rrrFgScsgdrw2QEYTi3t28bGDnEL8vMbbTOwi0ZgvE/edit?usp=sharing" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold flex-inline items-center gap-1">Brimmer Pay Rates Sheet <ExternalLink className="w-3 h-3 inline" /></a>.
+                    Open the <a href="https://docs.google.com/spreadsheets/d/18rrrFgScsgdrw2QEYTi3t28bGDnEL8vMbbTOwi0ZgvE/edit?usp=sharing" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold flex-inline items-center gap-1">Brimmer Prevailing Wage Pay Rate Sheet <ExternalLink className="w-3 h-3 inline" /></a> and download as CSV.
                 </li>
                 <li>
-                    Go to <strong>File &gt; Download &gt; Comma Separated Values (.csv)</strong> to get the rates file.
+                    Open the <a href="https://docs.google.com/spreadsheets/d/1eaJXz-CbBr7lvPYM7iM75MRQrogFQptkM5CjZqLb72M/edit?gid=1800980557#gid=1800980557" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold flex-inline items-center gap-1">Brimmer Regular Employee Wages Sheet <ExternalLink className="w-3 h-3 inline" /></a> and download as CSV.
                 </li>
                 <li>
-                    Copy the prompt below. Paste it into Gemini along with <strong>BOTH</strong> CSV files (Timesheets + Pay Rates).
+                    Copy the prompt below. Paste it into Gemini along with <strong>ALL THREE</strong> CSV files (Timesheets + Prevailing Wage Rates + Regular Wages).
                 </li>
             </ol>
         );
@@ -1095,8 +1095,8 @@ export default function App() {
                                                             min="0"
                                                             step="0.01"
                                                             className={`w-full pl-7 pr-3 py-2 border rounded focus:ring-2 focus:outline-none transition-all text-right font-mono text-sm ${isPayroll
-                                                                    ? "bg-amber-50 border-amber-200 text-amber-800 focus:ring-amber-500 placeholder-amber-300/50"
-                                                                    : "bg-slate-50 border-slate-300 text-slate-800 focus:ring-blue-500"
+                                                                ? "bg-amber-50 border-amber-200 text-amber-800 focus:ring-amber-500 placeholder-amber-300/50"
+                                                                : "bg-slate-50 border-slate-300 text-slate-800 focus:ring-blue-500"
                                                                 }`}
                                                             value={expenses[category] || ''}
                                                             onChange={(e) => handleExpenseChange(category, e.target.value)}
@@ -1375,8 +1375,8 @@ export default function App() {
                                                 <td className="px-6 py-4 font-medium text-slate-800">{emp.name}</td>
                                                 <td className="px-6 py-4 text-center">
                                                     <span className={`px-2 py-1 rounded text-xs font-bold ${emp.utilization > 0.85 ? 'bg-green-100 text-green-700' :
-                                                            emp.utilization > 0.70 ? 'bg-yellow-100 text-yellow-700' :
-                                                                'bg-red-100 text-red-700'
+                                                        emp.utilization > 0.70 ? 'bg-yellow-100 text-yellow-700' :
+                                                            'bg-red-100 text-red-700'
                                                         }`}>
                                                         {formatPercent(emp.utilization)}
                                                     </span>
